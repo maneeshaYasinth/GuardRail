@@ -56,6 +56,19 @@ def available_models(api_key, preferred_model):
         models.insert(0, preferred_model)
     return models
 
+def error_details(error):
+    try:
+        return error.read().decode("utf-8", errors="replace")
+    except Exception:
+        return str(error)
+
+def retry_delay(error, attempt):
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    try:
+        return min(max(float(retry_after), 2 ** attempt), 60)
+    except (TypeError, ValueError):
+        return min(2 ** attempt, 60)
+
 def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
     configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -88,15 +101,16 @@ def call_gemini(prompt, max_retries=3):
                 if error.code in (400, 404):
                     break
                 if error.code in (503, 429) and attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    time.sleep(retry_delay(error, attempt))
                     continue
+                if error.code == 429:
+                    raise RuntimeError(
+                        f"Gemini rate limit reached: {error_details(error)}"
+                    ) from error
                 raise
 
     if last_error is not None:
-        try:
-            details = last_error.read().decode("utf-8", errors="replace")
-        except Exception:
-            details = str(last_error)
+        details = error_details(last_error)
         raise RuntimeError(
             f"Gemini rejected all available models ({last_error.code}): {details}"
         ) from last_error
