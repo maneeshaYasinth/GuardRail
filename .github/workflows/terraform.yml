@@ -60,12 +60,29 @@ jobs:
         working-directory: ${{ env.TF_WORKING_DIR }}
         continue-on-error: true
 
-      - name: Run tfsec
-        id: tfsec
-        uses: aquasecurity/tfsec-pr-commenter-action@v1.3.1
+      - name: Run tfsec (JSON output)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | sudo bash
+          tfsec terraform --format json --out tfsec-results.json || true
+
+      - name: AI Summary of Security Findings
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python3 .github/scripts/summarize_findings.py
+
+      - name: Post AI Summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
         with:
-          github_token: ${{ github.token }}
-          working_directory: terraform
+          script: |
+            const fs = require('fs');
+            const summary = fs.readFileSync('ai-summary.md', 'utf8');
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: summary
+            });
 
       - name: Fail if Terraform Plan Failed
         if: steps.plan.outcome == 'failure'

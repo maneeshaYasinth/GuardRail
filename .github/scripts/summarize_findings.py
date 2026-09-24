@@ -1,0 +1,63 @@
+import json
+import os
+import urllib.request
+
+def load_findings():
+    try:
+        with open("tfsec-results.json") as f:
+            data = json.load(f)
+        return data.get("results", []) or []
+    except FileNotFoundError:
+        return []
+
+def build_prompt(findings):
+    if not findings:
+        return None
+
+    findings_text = ""
+    for f in findings[:15]:
+        findings_text += (
+            f"- Rule: {f.get('rule_id')} | Severity: {f.get('severity')}\n"
+            f"  Description: {f.get('description')}\n"
+            f"  Location: {f.get('location', {}).get('filename')}:"
+            f"{f.get('location', {}).get('start_line')}\n\n"
+        )
+
+    return (
+        "You are a security assistant reviewing Terraform scan results for a "
+        "junior DevOps engineer's learning project. Summarize the following "
+        "tfsec findings in plain, encouraging English. Group by severity, "
+        "explain the real-world risk of each in 1-2 sentences, and suggest a "
+        "concrete fix. Keep it concise and use Markdown.\n\n"
+        f"{findings_text}"
+    )
+
+def call_gemini(prompt):
+    api_key = os.environ["GEMINI_API_KEY"]
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+
+    body = json.dumps({
+        "contents": [{"parts": [{"text": prompt}]}]
+    }).encode("utf-8")
+
+    req = urllib.request.Request(
+        url, data=body, headers={"Content-Type": "application/json"}
+    )
+    with urllib.request.urlopen(req) as resp:
+        data = json.loads(resp.read())
+    return data["candidates"][0]["content"]["parts"][0]["text"]
+
+def main():
+    findings = load_findings()
+    if not findings:
+        summary = "✅ **GuardRail AI Summary:** No security findings detected in this change. Nice and clean!"
+    else:
+        prompt = build_prompt(findings)
+        ai_text = call_gemini(prompt)
+        summary = f"## 🛡️ GuardRail AI Security Summary\n\n{ai_text}"
+
+    with open("ai-summary.md", "w") as f:
+        f.write(summary)
+
+if __name__ == "__main__":
+    main()
