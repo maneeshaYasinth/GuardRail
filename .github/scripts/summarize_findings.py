@@ -34,32 +34,88 @@ def build_prompt(findings):
         f"{findings_text}"
     )
 
+def available_models(api_key, preferred_model):
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    request = urllib.request.Request(
+        f"{url}?key={api_key}",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        data = json.loads(response.read())
+
+    models = []
+    for model in data.get("models", []):
+        if "generateContent" not in model.get("supportedGenerationMethods", []):
+            continue
+        name = model.get("name", "").removeprefix("models/")
+        lower_name = name.lower()
+        excluded_families = ("embedding", "imagen", "tts", "veo", "robotics")
+        if name and not any(family in lower_name for family in excluded_families):
+            models.append(name)
+
+    models.sort(key=lambda name: ("flash" not in name.lower(), name))
+    if preferred_model in models:
+        models.remove(preferred_model)
+        models.insert(0, preferred_model)
+    return models
+
+def error_details(error):
+    try:
+        return error.read().decode("utf-8", errors="replace")
+    except Exception:
+        return str(error)
+
+def retry_delay(error, attempt):
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    try:
+        return min(max(float(retry_after), 2 ** attempt), 60)
+    except (TypeError, ValueError):
+        return min(2 ** attempt, 60)
+
 def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+    configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    models = available_models(api_key, configured_model)
+    if not models:
+        raise RuntimeError("The Gemini API key has no model supporting generateContent")
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}]
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
-    )
-    for attempt in range(max_retries):
-        try:
-            with urllib.request.urlopen(req) as resp:
-                data = json.loads(resp.read())
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.HTTPError as error:
-            if error.code in (503, 429) and attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-                continue
-            raise
+    last_error = None
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+        )
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    data = json.loads(resp.read())
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as error:
+                last_error = error
+                if error.code in (400, 404):
+                    break
+                if error.code in (503, 429) and attempt < max_retries - 1:
+                    time.sleep(retry_delay(error, attempt))
+                    continue
+                if error.code in (429, 503):
+                    break
+                raise
+
+    if last_error is not None:
+        details = error_details(last_error)
+        raise RuntimeError(
+            f"Gemini rejected all available models ({last_error.code}): {details}"
+        ) from last_error
+    raise RuntimeError("Gemini did not return a response")
 
 def main():
     findings = load_findings()

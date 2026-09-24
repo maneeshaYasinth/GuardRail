@@ -68,6 +68,7 @@ jobs:
       - name: AI Summary of Security Findings
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: gemini-2.5-flash
         run: python3 .github/scripts/summarize_findings.py
 
       - name: Post AI Summary to PR
