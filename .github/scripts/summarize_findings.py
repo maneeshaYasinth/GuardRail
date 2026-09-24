@@ -36,31 +36,43 @@ def build_prompt(findings):
 
 def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
-    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+    configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    models = list(dict.fromkeys([
+        configured_model,
+        "gemini-2.5-flash-lite",
+        "gemini-2.0-flash",
+    ]))
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}]
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        url,
-        data=body,
-        headers={
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        },
-    )
-    for attempt in range(max_retries):
-        try:
-            with urllib.request.urlopen(req) as resp:
-                data = json.loads(resp.read())
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        except urllib.error.HTTPError as error:
-            if error.code in (503, 429) and attempt < max_retries - 1:
-                time.sleep(2 ** attempt)
-                continue
-            raise
+    last_error = None
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+        req = urllib.request.Request(
+            url,
+            data=body,
+            headers={
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            },
+        )
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req) as resp:
+                    data = json.loads(resp.read())
+                return data["candidates"][0]["content"]["parts"][0]["text"]
+            except urllib.error.HTTPError as error:
+                last_error = error
+                if error.code == 404:
+                    break
+                if error.code in (503, 429) and attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+
+    raise last_error
 
 def main():
     findings = load_findings()
