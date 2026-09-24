@@ -36,7 +36,8 @@ def build_prompt(findings):
 
 def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
+    model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}]
