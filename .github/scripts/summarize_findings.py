@@ -106,7 +106,7 @@ def call_gemini(prompt, max_retries=3):
                 if error.code in (503, 429) and attempt < max_retries - 1:
                     time.sleep(retry_delay(error, attempt))
                     continue
-                if error.code == 429:
+                if error.code in (429, 503):
                     break
                 raise
 
