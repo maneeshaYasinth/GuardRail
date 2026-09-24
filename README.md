@@ -21,6 +21,8 @@ This project was built to explore how security, automation, and AI can work toge
 - **Cloud Provider:** AWS
 - **AI Layer:** LLM-based summarization of scan results (planned)
 
+The AI summary step retries transient Gemini API failures and falls back to a raw findings notice so external service interruptions do not fail the entire CI pipeline.
+
 ## Features
 
 - [ ] Terraform modules for core infra (networking, compute, IAM)

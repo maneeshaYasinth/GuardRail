@@ -1,5 +1,7 @@
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 
 def load_findings():
@@ -32,7 +34,7 @@ def build_prompt(findings):
         f"{findings_text}"
     )
 
-def call_gemini(prompt):
+def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
 
@@ -48,9 +50,16 @@ def call_gemini(prompt):
             "x-goog-api-key": api_key,
         },
     )
-    with urllib.request.urlopen(req) as resp:
-        data = json.loads(resp.read())
-    return data["candidates"][0]["content"]["parts"][0]["text"]
+    for attempt in range(max_retries):
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except urllib.error.HTTPError as error:
+            if error.code in (503, 429) and attempt < max_retries - 1:
+                time.sleep(2 ** attempt)
+                continue
+            raise
 
 def main():
     findings = load_findings()
@@ -58,8 +67,14 @@ def main():
         summary = "✅ **GuardRail AI Summary:** No security findings detected in this change. Nice and clean!"
     else:
         prompt = build_prompt(findings)
-        ai_text = call_gemini(prompt)
-        summary = f"## 🛡️ GuardRail AI Security Summary\n\n{ai_text}"
+        try:
+            ai_text = call_gemini(prompt)
+            summary = f"## 🛡️ GuardRail AI Security Summary\n\n{ai_text}"
+        except Exception as error:
+            summary = (
+                "⚠️ AI summary temporarily unavailable "
+                f"({error}). Raw tfsec findings are in the previous comment."
+            )
 
     with open("ai-summary.md", "w") as f:
         f.write(summary)
