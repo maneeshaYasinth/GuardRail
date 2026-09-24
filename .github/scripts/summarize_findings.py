@@ -34,14 +34,19 @@ def build_prompt(findings):
 
 def call_gemini(prompt):
     api_key = os.environ["GEMINI_API_KEY"]
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent"
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}]
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        url, data=body, headers={"Content-Type": "application/json"}
+        url,
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        },
     )
     with urllib.request.urlopen(req) as resp:
         data = json.loads(resp.read())
