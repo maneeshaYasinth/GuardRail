@@ -85,14 +85,22 @@ def call_gemini(prompt, max_retries=3):
                 return data["candidates"][0]["content"]["parts"][0]["text"]
             except urllib.error.HTTPError as error:
                 last_error = error
-                if error.code == 404:
+                if error.code in (400, 404):
                     break
                 if error.code in (503, 429) and attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
                     continue
                 raise
 
-    raise last_error
+    if last_error is not None:
+        try:
+            details = last_error.read().decode("utf-8", errors="replace")
+        except Exception:
+            details = str(last_error)
+        raise RuntimeError(
+            f"Gemini rejected all available models ({last_error.code}): {details}"
+        ) from last_error
+    raise RuntimeError("Gemini did not return a response")
 
 def main():
     findings = load_findings()
