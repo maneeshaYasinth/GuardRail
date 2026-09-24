@@ -48,9 +48,12 @@ def available_models(api_key, preferred_model):
         if "generateContent" not in model.get("supportedGenerationMethods", []):
             continue
         name = model.get("name", "").removeprefix("models/")
-        if name:
+        lower_name = name.lower()
+        excluded_families = ("embedding", "imagen", "tts", "veo", "robotics")
+        if name and not any(family in lower_name for family in excluded_families):
             models.append(name)
 
+    models.sort(key=lambda name: ("flash" not in name.lower(), name))
     if preferred_model in models:
         models.remove(preferred_model)
         models.insert(0, preferred_model)
@@ -104,9 +107,7 @@ def call_gemini(prompt, max_retries=3):
                     time.sleep(retry_delay(error, attempt))
                     continue
                 if error.code == 429:
-                    raise RuntimeError(
-                        f"Gemini rate limit reached: {error_details(error)}"
-                    ) from error
+                    break
                 raise
 
     if last_error is not None:
