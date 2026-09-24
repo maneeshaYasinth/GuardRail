@@ -34,14 +34,34 @@ def build_prompt(findings):
         f"{findings_text}"
     )
 
+def available_models(api_key, preferred_model):
+    url = "https://generativelanguage.googleapis.com/v1beta/models"
+    request = urllib.request.Request(
+        f"{url}?key={api_key}",
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request) as response:
+        data = json.loads(response.read())
+
+    models = []
+    for model in data.get("models", []):
+        if "generateContent" not in model.get("supportedGenerationMethods", []):
+            continue
+        name = model.get("name", "").removeprefix("models/")
+        if name:
+            models.append(name)
+
+    if preferred_model in models:
+        models.remove(preferred_model)
+        models.insert(0, preferred_model)
+    return models
+
 def call_gemini(prompt, max_retries=3):
     api_key = os.environ["GEMINI_API_KEY"]
     configured_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    models = list(dict.fromkeys([
-        configured_model,
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-    ]))
+    models = available_models(api_key, configured_model)
+    if not models:
+        raise RuntimeError("The Gemini API key has no model supporting generateContent")
 
     body = json.dumps({
         "contents": [{"parts": [{"text": prompt}]}]
